@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FAT | Food Aim Trainer</title>
+    <style>
+      html,
+      document,
+      body {
+        background: #1b1d20;
+        color: greenyellow;
+      }
+
+      * {
+        overflow: hidden;
+      }
+
+      .box {
+        position: absolute;
+        opacity: 0.5;
+        border-radius: 50%;
+      }
+
+      .red {
+        background: orangered;
+      }
+
+      .blue {
+        background: skyblue;
+      }
+
+      .green {
+        background: greenyellow;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="https://cdn.jsdelivr.net/npm/ola"></script>
+    <script src="https://unpkg.com/brynja@4.0.7/cdn/brynja.js"></script>
+    <script>
+      document.querySelector("html").style.height = "100vh";
+      document.querySelector("html").style.width = "100vw";
+      const { width, height } = document
+        .querySelector("html")
+        .getBoundingClientRect();
+
+      const config = {
+        foodBatchSize: 10,
+        tailStartLength: 10,
+        tailFoodIncreaseLength: 1,
+        headSize: 100,
+        minimumHeadSize: 10,
+        tailMaxLength: () =>
+          config.tailStartLength +
+          config.tailFoodIncreaseLength * config.foodGoal,
+        tailCatchUp: (i, currLen) => config.headSize / (currLen + i),
+        tailSize: (i, currLen) =>
+          config.headSize - (config.headSize / currLen) * i,
+        foodSize: 20,
+        startTime: 10 * 1000,
+      };
+
+      let gameState = "start"; // start, running, end
+
+      const randomNumberBetween = (min, max) =>
+        Math.floor(Math.random() * (max - min + 1) + min);
+
+      let time = config.startTime;
+
+      let food = [];
+      const addRandomFood = (count = 1) => {
+        food = Array(count)
+          .fill(0)
+          .map((_, i) => ({
+            x: randomNumberBetween(100, width - 100),
+            y: randomNumberBetween(100, height - 100),
+          }));
+      };
+
+      const mouse = { x: width * 0.5, y: height * 0.5 };
+      const tail = Array(config.tailStartLength)
+        .fill(0)
+        .map((_, i, { length }) =>
+          Ola({ x: 100, y: 100 }, config.tailCatchUp(i, length))
+        );
+
+      const applyTailUpdate = ({ x, y }, [el, ...rest]) => {
+        el.set({ x, y });
+        if (rest.length > 0) {
+          applyTailUpdate({ x: el.x, y: el.y }, rest);
+        }
+      };
+
+      const vecLen = (p1, p2) =>
+        Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+
+      const eatFood = () => {
+        const headPos = tail[0];
+        const lenBefore = food.length;
+        food = food.filter(
+          (foodPos) =>
+            vecLen(headPos, foodPos) > config.headSize / 2 + config.foodSize / 4
+        );
+        const lenDiff = lenBefore - food.length;
+        for (let i = 0; i < lenDiff * config.tailFoodIncreaseLength; i++) {
+          tail.push(
+            Ola(
+              {
+                x: tail[tail.length - 1].x,
+                y: tail[tail.length - 1].y,
+              },
+              config.tailCatchUp(
+                tail.length + i,
+                tail.length + lenDiff * config.tailFoodIncreaseLength
+              )
+            )
+          );
+        }
+      };
+
+      window.onmousemove = (ev) => {
+        mouse.x = ev.clientX;
+        mouse.y = ev.clientY;
+      };
+
+      let previousTime;
+      let currentTime;
+      let dt = currentTime - previousTime;
+      const update = () => {
+        applyTailUpdate(mouse, tail);
+        if (gameState !== "running") {
+          return;
+        }
+        if (previousTime === undefined) {
+          return;
+        }
+        currentTime = Date.now();
+        dt = currentTime - previousTime;
+        time -= dt;
+        if (time <= 0) {
+          gameState = "end";
+          return;
+        }
+        eatFood();
+        if (food.length === 0) {
+          time += config.startTime * 0.25;
+          config.headSize = Math.max(
+            config.minimumHeadSize,
+            config.headSize - 1
+          );
+          addRandomFood(config.foodBatchSize);
+        }
+        previousTime = currentTime;
+      };
+
+      const render = () => {
+        if (gameState === "running") {
+          brynja.render((_) =>
+            _.style({
+              cursor: "none",
+            })
+              .children("div", food.length, (_, i) =>
+                _.class("box", "green").prop(
+                  "style",
+                  `
+          width: ${config.foodSize}px;
+          height: ${config.foodSize}px;
+          left: ${food[i].x - config.foodSize / 2}px;
+          top: ${food[i].y - config.foodSize / 2}px;
+        `
+                )
+              )
+              .children("div", tail.length, (_, i) =>
+                _.class("box", "red").prop(
+                  "style",
+                  `
+          width: ${config.tailSize(i, tail.length)}px;
+          height: ${config.tailSize(i, tail.length)}px;
+          left: ${tail[i].x - config.tailSize(i, tail.length) / 2}px;
+          top: ${tail[i].y - config.tailSize(i, tail.length) / 2}px;
+        `
+                )
+              )
+              .child("h1", (_) =>
+                _.style({
+                  opacity: 0.5,
+                  paddingLeft: "50px",
+                  color: "white",
+                }).text(`Food: ${tail.length - config.tailStartLength}`)
+              )
+              .child("h1", (_) =>
+                _.style({
+                  opacity: 0.5,
+                  paddingLeft: "50px",
+                  color:
+                    time < config.startTime * 0.25
+                      ? "red"
+                      : time < config.startTime * 0.5
+                      ? "orangered"
+                      : time < config.startTime * 0.75
+                      ? "yellow"
+                      : "greenyellow",
+                }).text(`${time}`)
+              )
+          );
+        } else if (gameState === "start") {
+          brynja.render((_) =>
+            _.child("h1", (_) =>
+              _.style({
+                margin: "auto",
+                opacity: 0.5,
+                width: "100%",
+                textAlign: "center",
+                paddingTop: "40vh",
+              })
+                .child("p", (_) =>
+                  _.style({
+                    color: "white",
+                  }).child("span", (_) =>
+                    _.text(`Welcome to FAT, the Food Aim Trainer!`)
+                  )
+                )
+                .child("p", (_) =>
+                  _.style({
+                    color: "white",
+                  })
+                    .child("span", (_) => _.text(`Collect all of the `))
+                    .child("span", (_) =>
+                      _.style({
+                        color: "greenyellow",
+                      }).text(`food`)
+                    )
+                    .child("span", (_) => _.text(` before the `))
+                    .child("span", (_) =>
+                      _.style({
+                        color: "yellow",
+                      }).text(`time`)
+                    )
+                    .child("span", (_) => _.text(` runs out.`))
+                )
+
+                .child("p", (_) =>
+                  _.style({
+                    color: "white",
+                  }).child("span", (_) =>
+                    _.text(`Collecting all food grants you more time!`)
+                  )
+                )
+                .child("a", (_) =>
+                  _.child("u", (_) =>
+                    _.style({
+                      cursor: "pointer",
+                    })
+                      .on("click", () => {
+                        time = config.startTime;
+                        previousTime = Date.now();
+                        gameState = "running";
+                      })
+                      .text(`Click here to start!`)
+                  )
+                )
+            )
+          );
+        } else if (gameState === "end") {
+          brynja.render((_) =>
+            _.child("h1", (_) =>
+              _.style({
+                margin: "auto",
+                opacity: 0.5,
+                width: "100%",
+                textAlign: "center",
+                paddingTop: "45vh",
+              })
+                .child("p", (_) =>
+                  _.style({
+                    color: "white",
+                  })
+                    .child("span", (_) => _.text(`You've run out of `))
+                    .child("span", (_) =>
+                      _.style({
+                        color: "yellow",
+                      }).text(`time`)
+                    )
+                    .child("span", (_) => _.text(`...`))
+                )
+                .child("p", (_) =>
+                  _.style({
+                    color: "white",
+                  })
+                    .child("span", (_) => _.text(`You manadged to eat `))
+                    .child("u", (_) =>
+                      _.text(`${tail.length - config.tailStartLength}`)
+                    )
+                    .child("span", (_) =>
+                      _.style({
+                        color: "greenyellow",
+                      }).text(` food`)
+                    )
+                    .child("span", (_) => _.text(`.`))
+                )
+                .child("p", (_) =>
+                  _.style({
+                    color: "white",
+                  }).child("span", (_) => _.text(`Think you can do better?`))
+                )
+                .child("a", (_) =>
+                  _.child("u", (_) =>
+                    _.style({
+                      cursor: "pointer",
+                    })
+                      .on("click", () => {
+                        location.reload();
+                      })
+                      .text(`Click here to try again!`)
+                  )
+                )
+            )
+          );
+        }
+        requestAnimationFrame(render);
+      };
+
+      requestAnimationFrame(render);
+      setInterval(update, 3);
+    </script>
+  </body>
+</html>
